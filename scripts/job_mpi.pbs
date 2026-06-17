@@ -1,0 +1,33 @@
+#!/bin/bash
+# MPI maze generator: strong + weak scaling across several nodes.
+# Submit from the repository root:  qsub scripts/job_mpi.pbs
+#PBS -N maze_mpi
+#PBS -o ./results/maze_mpi.o
+#PBS -e ./results/maze_mpi.e
+#PBS -q short_cpuQ
+#PBS -l walltime=1:00:00
+# 4 nodes x 16 ranks = 64 ranks total. mpiprocs sets the ranks per node, so the
+# worker sweep stays on one node up to 16 and crosses nodes at 32 and 64.
+# net_type=IB requests the Infiniband interconnect; drop it if the job will not
+# schedule, or use net_type=OP on queues that have Omni-Path.
+#PBS -l select=4:ncpus=16:mpiprocs=16:mem=4gb:net_type=IB
+#PBS -l place=scatter
+
+module load gcc91
+gcc() { gcc-9.1.0 "$@"; }
+
+# Load the cluster's MPI module. Run `module avail` once on the head node to
+# find the exact name (an mpich/openmpi build for gcc-9.1.0) and replace this.
+module load mpich-3.2.1--gcc-9.1.0    # <-- VERIFY with `module avail`
+
+cd "$PBS_O_WORKDIR"
+mpicc --version
+
+mpicc -O3 -march=native -Wall -Isrc -o maze_mpi src/maze.c src/maze_mpi.c
+
+# 64 slots were requested, so -np up to 64 needs no --oversubscribe.
+export VERSIONS="mpi"
+export RUNS=5
+export WORKERS="1 2 4 8 16 32 64"
+./scripts/strong.sh 8000 8000
+./scripts/weak.sh   8000 1000
