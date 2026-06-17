@@ -1,0 +1,6 @@
+# compiled binaries (rebuilt with `make`)
+/maze
+/maze_mpi
+
+# macOS
+.DS_Store
