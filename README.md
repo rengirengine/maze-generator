@@ -34,7 +34,7 @@ Both drivers call `carve` from `src/maze.c`.
 Compiler flags: `-O3 -march=native -fopenmp -Wall` for the
 OpenMP build, `-O3 -march=native -Wall` for the MPI build.
 
-## Run (local)
+## Run Locally
 
     OMP_NUM_THREADS=P ./maze WIDTH HEIGHT [SEED] [p]
     mpirun -np P ./maze_mpi WIDTH HEIGHT [SEED] [p]
@@ -80,8 +80,7 @@ For more than 8 workers:
 
 ## Run on the cluster (UniTN HPC)
 
-The 64- and 128-core numbers come from the University of Trento HPC cluster. Barriers cross the network and
-each node adds its own memory bandwidth.
+The 64- and 128-core numbers come from the University of Trento HPC cluster.
 
 | job           | cores         | layout                                               |
 |---------------|---------------|------------------------------------------------------|
@@ -89,12 +88,11 @@ each node adds its own memory bandwidth.
 | `job_mpi.pbs` | up to **128** | 2 nodes × 64 ranks; **64 = 1 full node, 128 = 2 nodes** |
 
 Because nodes have 64 cores and `mpiprocs=64`, the MPI sweep is single-node up
-to 64 ranks and uses **both nodes at 128 ranks**. OpenMP is shared-memory; therefore, it
-stops at one node's 64 cores.
+to 64 ranks and uses **both nodes at 128 ranks**. OpenMP is shared-memory. It
+stops at one node's 64 cores by nature.
 
 `job_mpi.pbs` also runs a small placement test (`scripts/multinode.sh`). The same
 64 ranks on the same maze, once on **1 node** and once on **2 nodes** (32/node).
-Cores are held fixed, so the difference is just the effect of using a second node.
 
 1. **Connect.** If you are not on campus, open the university VPN. Then SSH in
    with your credentials:
