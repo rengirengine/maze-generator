@@ -1,33 +1,47 @@
 #!/bin/bash
-# MPI maze generator: strong + weak scaling across several nodes.
-# Submit from the repository root:  qsub scripts/job_mpi.pbs
+# MPI maze generator on hpc3: strong + weak scaling (1..128) plus a 1-node vs
+# 2-node placement test. Nodes have 64 cores, so 64 ranks fill one node and 128
+# ranks span two. Submit from the repo root:  qsub scripts/job_mpi.pbs
 #PBS -N maze_mpi
 #PBS -o ./results/maze_mpi.o
 #PBS -e ./results/maze_mpi.e
-#PBS -q short_cpuQ
+#PBS -q shortCPUQ
 #PBS -l walltime=1:00:00
-# 4 nodes x 16 ranks = 64 ranks total. mpiprocs sets the ranks per node, so the
-# worker sweep stays on one node up to 16 and crosses nodes at 32 and 64.
-# net_type=IB requests the Infiniband interconnect; drop it if the job will not
-# schedule, or use net_type=OP on queues that have Omni-Path.
-#PBS -l select=4:ncpus=16:mpiprocs=16:mem=4gb:net_type=IB
+# 2 nodes x 64 ranks = 128. The sweep stays on one node up to 64 and uses both
+# at 128. For more cross-node points try select=8:ncpus=16:mpiprocs=16 (8 nodes,
+# harder to schedule). place=scatter puts one chunk per node.
+#PBS -l select=2:ncpus=64:mpiprocs=64:mem=16gb
 #PBS -l place=scatter
 
-module load gcc91
-gcc() { gcc-9.1.0 "$@"; }
-
-# Load the cluster's MPI module. Run `module avail` once on the head node to
-# find the exact name (an mpich/openmpi build for gcc-9.1.0) and replace this.
-module load mpich-3.2.1--gcc-9.1.0    # <-- VERIFY with `module avail`
+# foss/2023a = GCC 12.3.0 + OpenMPI 4.1.5 (gives gcc and mpicc/mpirun).
+module load foss/2023a
 
 cd "$PBS_O_WORKDIR"
 mpicc --version
-
+# If the two nodes are different CPUs, -march=native can give "Illegal
+# instruction" at run time; switch it to -mtune=native then.
 mpicc -O3 -march=native -Wall -Isrc -o maze_mpi src/maze.c src/maze_mpi.c
 
-# 64 slots were requested, so -np up to 64 needs no --oversubscribe.
+export OMP_NUM_THREADS=1
+
+# This OpenMPI doesn't read the PBS allocation (it sees only the first node), so
+# build a hostfile from $PBS_NODEFILE and hand it to every mpirun.
+HOSTFILE="$PBS_O_WORKDIR/hostfile.${PBS_JOBID%%.*}"
+sort "$PBS_NODEFILE" | uniq -c | awk '{print $2, "slots="$1}' > "$HOSTFILE"
+export MPIFLAGS="--hostfile $HOSTFILE"
+
+echo "==== allocation ===="
+sort -u "$PBS_NODEFILE"
+echo "hostfile:"; cat "$HOSTFILE"
+echo "-np 64 lands on:";  mpirun $MPIFLAGS -np 64  hostname | sort | uniq -c
+echo "-np 128 lands on:"; mpirun $MPIFLAGS -np 128 hostname | sort | uniq -c
+echo "===================="
+
 export VERSIONS="mpi"
-export RUNS=5
-export WORKERS="1 2 4 8 16 32 64"
-./scripts/strong.sh 8000 8000
-./scripts/weak.sh   8000 1000
+export RUNS=7
+export WORKERS="1 2 4 8 16 32 64 128"
+./scripts/strong.sh 16000 16000     # fixed 256 M-cell maze
+./scripts/weak.sh   8000  2000      # 16 M cells per rank
+./scripts/multinode.sh 16000 16000  # same ranks, 1 node vs 2 nodes
+
+rm -f "$HOSTFILE"

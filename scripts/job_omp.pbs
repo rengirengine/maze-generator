@@ -1,27 +1,24 @@
 #!/bin/bash
-# OpenMP maze generator: strong + weak scaling on a single node.
-# Submit from the repository root:  qsub scripts/job_omp.pbs
+# OpenMP maze generator: strong + weak scaling on one node (hpc3, 64 cores).
+# OpenMP can't cross nodes, so this is the single-node baseline for the MPI run.
+# Submit from the repo root:  qsub scripts/job_omp.pbs
 #PBS -N maze_omp
 #PBS -o ./results/maze_omp.o
 #PBS -e ./results/maze_omp.e
-# short_cpuQ allows up to 6 h; use debug_cpuQ for a <15 min smoke test.
-#PBS -q short_cpuQ
-#PBS -l walltime=1:00:00
-# One node; ask for as many cores as OpenMP threads. ncpus must be <= the
-# number of cores the node actually has, and ompthreads should match ncpus.
+#PBS -q shortCPUQ
+#PBS -l walltime=0:30:00
 #PBS -l select=1:ncpus=64:ompthreads=64:mem=16gb
 
-module load gcc91
-gcc() { gcc-9.1.0 "$@"; }
+module load GCC/12.3.0
 
 cd "$PBS_O_WORKDIR"
 gcc --version
-
-# Compile on the compute node so -march=native matches the run hardware.
 gcc -O3 -march=native -fopenmp -Wall -Isrc -o maze src/maze.c src/maze_omp.c
 
+echo "node: $(hostname), cores: $(nproc)"
+
 export VERSIONS="omp"
-export RUNS=5
+export RUNS=7
 export WORKERS="1 2 4 8 16 32 64"
-./scripts/strong.sh 8000 8000
-./scripts/weak.sh   8000 1000
+./scripts/strong.sh 16000 16000     # same sizes as the MPI run
+./scripts/weak.sh   8000  2000

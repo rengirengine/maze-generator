@@ -34,7 +34,9 @@ measure() {
         times="$times $t"
     done
     printf '%s' "$times" | awk -v l="$label" '{
-        n=NF; s=0; for (i=1;i<=n;i++) s+=$i; m=s/n;
+        n=NF;
+        if (n==0) { printf "%-8s %9s %9s %3d\n", l, "FAIL", "-", 0; next }
+        s=0; for (i=1;i<=n;i++) s+=$i; m=s/n;
         v=0; for (i=1;i<=n;i++) v+=($i-m)*($i-m);
         sd=(n>1)?sqrt(v/(n-1)):0;
         printf "%-8s %9.4f %9.4f %3d\n", l, m, sd, n;

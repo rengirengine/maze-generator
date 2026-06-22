@@ -1,0 +1,5 @@
+# multi-node placement  16000x16000  runs=7  (same ranks, varying #nodes)
+config        mean       std   n
+64@1n       0.1838    0.0155   7
+64@2n       0.1783    0.0031   7
+128@2n      0.1560    0.0802   7

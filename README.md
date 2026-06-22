@@ -21,7 +21,8 @@ binaries cover the whole scaling study.
                 maze_omp.c        OpenMP driver
                 maze_mpi.c        MPI driver
     scripts/    strong.sh, weak.sh    scaling sweeps (repeat + average)
-                common.sh             shared helper, sourced by the two above
+                multinode.sh          same ranks on 1 vs 2 nodes (MPI only)
+                common.sh             shared helper, sourced by the above
                 job_omp.pbs, job_mpi.pbs   PBS job scripts for the cluster
     results/    example_maze.txt, raw timing logs
     plots/      summary CSVs behind the report figures
@@ -85,61 +86,95 @@ Variables to be set from the environment:
 
 To scale for more than 8 workers:
 
-    RUNS=7 WORKERS="1 2 4 8 16 32 64" ./scripts/strong.sh 8000 8000
-MPI sometimes refuse to launch on a computer with fewer slots than ranks. If this happens, set
-`MPIFLAGS=--oversubscribe` for **local runs only**. You should launch through the scheduler on a laptop.
+    RUNS=7 WORKERS="1 2 4 8 16 32 64 128" ./scripts/strong.sh 16000 16000
+MPI sometimes refuses to launch on a computer with fewer slots than ranks. If this happens, set
+`MPIFLAGS=--oversubscribe` for **local runs only**. Oversubscribing a laptop does not measure real
+parallelism, so the 64- and 128-core numbers in the report come from the cluster, not a laptop.
 
 ## Run on the cluster (UniTN HPC)
 
-This project can be benchmarked on the University of Trento HPC cluster. **Timing
-runs must happen on compute nodes. Running jobs on the head/login nodes is not
-allowed.** 
+The 64- and 128-core numbers come from the University of Trento HPC cluster
+(**hpc3**: PBS, EasyBuild modules, 64-core nodes). This is where the multi-node
+points actually span separate machines, so the barriers cross the network and
+each node adds its own memory bandwidth — which a laptop can't show. **Timing
+runs must happen on compute nodes, never on the head/login node.**
 
-1. **Connect.** If you are not in the campus, open the university VPN. Then SSH in
+How the two jobs reach 64 and 128 cores:
+
+| job           | cores         | layout                                               |
+|---------------|---------------|------------------------------------------------------|
+| `job_omp.pbs` | up to **64**  | 1 node, threads = cores (OpenMP cannot cross nodes)  |
+| `job_mpi.pbs` | up to **128** | 2 nodes × 64 ranks; **64 = 1 full node, 128 = 2 nodes** |
+
+Because nodes have 64 cores and `mpiprocs=64`, the MPI sweep is single-node up
+to 64 ranks and uses **both nodes at 128 ranks**. OpenMP is shared-memory, so it
+stops at one node's 64 cores; that ceiling is exactly what MPI removes by adding
+a second node — the point of the multi-node run.
+
+`job_mpi.pbs` also runs a small placement test (`scripts/multinode.sh`): the same
+64 ranks on the same maze, once on **1 node** and once on **2 nodes** (32/node).
+Cores are held fixed, so the difference is just the effect of using a second node
+(its extra memory bandwidth versus the cross-node barrier cost) — something
+OpenMP can't do at all.
+
+1. **Connect.** If you are not on campus, open the university VPN. Then SSH in
    with your credentials:
 
-        ssh username@hpc.unitn.it
+        ssh username@hpc.unitn.it       # lands on hpc3-login0
 
 2. **Copy the project up**:
 
         scp -r maze-generator username@hpc.unitn.it:~/
 
-3. **Load the toolchain and find the MPI module:**
+3. **Toolchain.** hpc3 uses EasyBuild modules; the scripts already load them:
+   `foss/2023a` (GCC 12.3.0 + OpenMPI 4.1.5, gives `gcc` and `mpicc`/`mpirun`)
+   for the MPI job and `GCC/12.3.0` for the OpenMP job. Confirm they exist with
 
-        module load gcc91      # provides gcc-9.1.0
-        module avail           # note the MPI module name (an mpich/openmpi build)
+        module -t avail 2>&1 | grep -iE '^(GCC/|OpenMPI/|foss/)'
 
-   Put that MPI module name into `scripts/job_mpi.pbs` (it currently has a
-   placeholder marked `VERIFY with module avail`).
+   and edit the `module load` line in the PBS scripts if your versions differ.
 
-4. **Check a node's core count**:
+4. **Node core count** (already assumed to be 64). Verify with:
 
-        qsub -I -q short_cpuQ -l select=1:ncpus=8:mem=1gb:walltime=00:10:00
-        lscpu        # CPU model, cores/node, sockets/NUMA
-        exit
+        pbsnodes -a | grep -m1 resources_available.ncpus
+        # or interactively:
+        qsub -I -q shortCPUQ -l select=1:ncpus=8:mem=1gb:walltime=00:10:00
+        lscpu ; exit
 
-   If nodes have fewer than 64 cores, lower `ncpus`/`ompthreads` and the
-   `WORKERS` list in the PBS scripts to match.
+   If a node has fewer than 64 cores, lower `ncpus`/`ompthreads` and the OpenMP
+   `WORKERS` list to match, and adjust `mpiprocs`/`select` in `job_mpi.pbs` so the
+   run still totals 128 ranks across the nodes. (The header of `job_mpi.pbs` also
+   notes an 8-node × 16-rank layout, which gives more cross-node points but is
+   harder to schedule on a busy cluster.)
 
 5. **Submit from the repository root**:
 
         cd ~/maze-generator
-        qsub scripts/job_omp.pbs     # OpenMP strong + weak, one node
-        qsub scripts/job_mpi.pbs     # MPI strong + weak, several nodes
+        qsub scripts/job_omp.pbs     # OpenMP strong + weak, one node, 1..64
+        qsub scripts/job_mpi.pbs     # MPI strong + weak, two nodes, 1..128
         qstat -u username            # watch jobs (Q queued, R running, E exiting)
 
-6. **Collect results** from `results/maze_omp.o` / `results/maze_mpi.o`.
+   The MPI job requests two nodes and may queue for a while; the OpenMP job
+   (one node) usually starts sooner.
+
+6. **Collect results** from `results/maze_omp.o` / `results/maze_mpi.o`:
 
         scp 'username@hpc.unitn.it:~/maze-generator/results/maze_*.[oe]' ./results/
 
-**Queues**: `debug_cpuQ` (should be less than 15 minutes, quick tests),
-`short_cpuQ` (less than 6 hours), `common_cpuQ`/`long_cpuQ` for longer runs.
+   `maze_mpi.o` starts with a node-placement banner (proving 64 ran on one node
+   and 128 spanned two), then the `# strong scaling …` and `# weak scaling …`
+   tables (`worker  mean  std  n`, seconds), and finally the
+   `# multi-node placement …` table comparing `64@1n`, `64@2n`, `128@2n`.
 
-Nothing except the script defaults in the code limits the worker count. The OpenMP build uses `omp_get_max_threads()` (bounded
-by the requested `ncpus`/`ompthreads`), so on one node you can run as many
-threads as the node has cores (`select=1:ncpus=64:ompthreads=64`). The MPI build
-uses the launcher's rank count; hence, it spans nodes
-(`select=4:ncpus=16:mpiprocs=16` = 64 ranks. `net_type=IB` selects the
-Infiniband interconnect). The provided PBS scripts sweep 1..64 workers.
+**Queues** (PBS, from `qstat -Q`): `shortCPUQ` (used here), `commonCPUQ` and
+`longCPUQ` for longer jobs.
+
+Nothing except the script defaults limits the worker count. The OpenMP build
+uses `omp_get_max_threads()` (bounded by the requested `ncpus`/`ompthreads`), so
+on one node it runs as many threads as the node has cores
+(`select=1:ncpus=64:ompthreads=64`). The MPI build uses the launcher's rank
+count and therefore spans nodes (`select=2:ncpus=64:mpiprocs=64` = 128 ranks,
+`place=scatter` puts one chunk per node). The provided PBS scripts sweep 1..64
+(OpenMP) and 1..128 (MPI).
 
 by Burak Can Arikan
