@@ -139,11 +139,10 @@ stops at one node's 64 cores by nature.
    tables (`worker  mean  std  n`, seconds), and finally the
    `# multi-node placement …` table comparing `64@1n`, `64@2n`, `128@2n`.
 
-**Queues** : `shortCPUQ` (used here), `commonCPUQ` and
-`longCPUQ` for longer jobs.
+**Queues** : `shortCPUQ`, `commonCPUQ`, `longCPUQ`
 
 Nothing except the script defaults limits the worker count. The OpenMP build
-uses `omp_get_max_threads()` (bounded by the requested `ncpus`/`ompthreads`), so
+uses `omp_get_max_threads()` that is bounded by the requested `ncpus`/`ompthreads`, so
 on one node it runs as many threads as the node has cores
 (`select=1:ncpus=64:ompthreads=64`). The MPI build uses the launcher's rank
 count and therefore spans nodes (`select=2:ncpus=64:mpiprocs=64` = 128 ranks,
