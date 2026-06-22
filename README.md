@@ -78,7 +78,7 @@ For more than 8 workers:
 
     RUNS=7 WORKERS="1 2 4 8 16 32 64 128" ./scripts/strong.sh 16000 16000
 
-## Run on the cluster (UniTN HPC)
+## Run on the UniTN HPC cluster
 
 The 64- and 128-core numbers come from the University of Trento HPC cluster.
 
